@@ -48,7 +48,7 @@ from ifcopenshell.util.shape_builder import V
 
 
 # Specify the path to your custom directory
-custom_scripts_path = "C:\dev\MyBlenderScripts"
+custom_scripts_path = "C:\dev\python-ifc-learn\MyBlenderScripts"
 
 # Check if the directory exists
 if os.path.exists(custom_scripts_path):
