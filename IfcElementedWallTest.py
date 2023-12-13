@@ -1,4 +1,4 @@
-#---------USEFUL LINKS FOR LEARNING-----------#
+ #---------USEFUL LINKS FOR LEARNING-----------#
 
 #-----SPECIAL NOTE------------
 #Ensure you have the latest ifcopenshell or blender bim source code 
@@ -25,6 +25,7 @@ import os
 import sys
 #used for wall matrix creation , location, orientation
 import numpy
+import math
 
 
 """
@@ -134,11 +135,195 @@ run("aggregate.assign_object", model, relating_object=building, product=storey)
 run("aggregate.assign_object", model, relating_object=storey, product=wallgroup)
 
 
+# And/Or, if we plan to store 2D geometry, we need a "Plan" context
+plan = run("context.add_context", model, context_type="Plan")
+
+# A 2D annotation subcontext for plan views are important for door
+# swings, window cuts, and symbols for equipment like GPOs, fire
+# extinguishers, and so on.
+run("context.add_context", model,
+    context_type="Plan", context_identifier="Annotation", target_view="PLAN_VIEW", parent=plan)
 
 
 
 #------------------------modify file---------------------------
 
+#----------------------------CREATE IFC CARTESIAN POINT----------------------#
+
+#next goal is to create cartesian points and lines.  below doesn't work yet
+#myPoint = ("root.create_entity",model, ifc_class = "IfcCartesianPoint", name = "myPoint")
+def createpoint(name, x,y,z):        
+
+
+        #create a 2d annotation point
+        annoPt1 = run("root.create_entity", model, ifc_class = "IfcAnnotation", name = str(name))
+
+
+        #instead create ifc directly.
+        myPoint1 = model.createIfcCartesianPoint((x,y,z))
+
+
+        #may need to do something with si units
+
+        #create representation (can I use a single vertice as a mesh representation?)
+        vert1 = [(x,y,z)]
+
+
+        vert_rep = model.createIfcShapeRepresentation(
+                ContextOfItems=body, 
+                RepresentationIdentifier="Body", 
+                RepresentationType="Point", 
+                Items= [myPoint1])        
+
+        #assign representation
+        run("geometry.assign_representation", model, product = annoPt1, representation = vert_rep)
+
+        #create object placement
+        run("geometry.edit_object_placement",model, product = myPoint1)
+
+        #assign to container
+        run("spatial.assign_container", model, relating_structure = storey, product = annoPt1)
+        
+        return myPoint1
+
+
+
+#creates start and endpoint of our wall axis line
+
+pt1 = createpoint("pt1",0.0,00.0,0.0)
+
+pt2 = createpoint("pt2",0.0,3000.0,0.0)
+
+ptlist = [pt1,pt2]
+
+
+#create a line between the points
+def createline(name, pt1,pt2):           
+
+
+        #create a 2d annotation point
+        annoLine = run("root.create_entity", model, ifc_class = "IfcAnnotation", name = str(name))
+        
+        #plane = lambda f: [f.createIfcPlane(f.createIfcAxis2Placement3D(f.createIfcCartesianPoint((0., 0., 0.))))]
+
+        #instead create ifc directly.
+        myLine = model.createIfcPolyLine(ptlist)
+
+
+        line_rep = model.createIfcShapeRepresentation(
+                ContextOfItems=body, 
+                RepresentationIdentifier="Body", 
+                RepresentationType="Curve2d", 
+                Items= [myLine])        
+
+        #assign representation
+        run("geometry.assign_representation", model, product = annoLine, representation = line_rep)
+
+        #create object placement
+        run("geometry.edit_object_placement",model, product = myLine)
+
+        #assign to container
+        run("spatial.assign_container", model, relating_structure = storey, product = annoLine)
+        
+        
+
+createline("line1",pt1,pt2)
+
+
+
+#------------now trying to get points of line so can build from line up--------------#
+#test get points back from line created
+def get_element_by_name(ifc_file, element_type, element_name):
+    elements = ifc_file.by_type(element_type)
+    for element in elements:
+        if hasattr(element, "Name") and element.Name == element_name:
+            return element
+    return None
+
+# Replace "IfcWall" with the specific type of element you're looking for
+element_type = "IfcAnnotation"
+
+# Replace "YourWallName" with the name of the element you're looking for
+element_name = "line1"
+
+found_element = get_element_by_name(model, element_type, element_name)
+
+if found_element:
+    print(f"Element found: {found_element}")
+else:
+    print(f"Element with name {element_name} not found.")
+    
+    
+    
+
+# Assuming you have an IfcCurve instance, replace this with your actual instance
+ifc_curve = model.by_type("IfcCurve")[0]
+
+# Get the start and end points of the curve
+if hasattr(ifc_curve, "Points"):
+    # IfcPolyline or IfcTrimmedCurve
+    points = ifc_curve.Points
+    start_point = points[0]
+    end_point = points[-1]
+    print("Start Point:", start_point)
+    print("End Point:", end_point)
+elif hasattr(ifc_curve, "StartPoint") and hasattr(ifc_curve, "EndPoint"):
+    # IfcLine, IfcCircle, or similar
+    start_point = ifc_curve.StartPoint
+    end_point = ifc_curve.EndPoint
+    print("Start Point:", start_point)
+    print("End Point:", end_point)
+else:
+    print("Could not determine curve type or endpoints.")
+
+
+
+#----------------------- get coords
+
+def get_coordinates_of_polyline(ifc_polyline):
+    coordinates = []
+    for point in ifc_polyline.Points:
+        x, y, z = point.Coordinates[:3] if point.Coordinates else (None, None, None)
+        coordinates.append((x, y, z))
+    return coordinates
+
+def create_points_along_vector(start_point, end_point, num_points=10):
+    direction_vector = [(end - start) / (num_points - 1) for start, end in zip(start_point, end_point)]
+    new_points = [
+        tuple(start + i * step for start, step in zip(start_point, direction_vector))
+        for i in range(num_points)
+    ]
+    return new_points
+
+
+# Replace "IfcPolyline" with the specific type of curve you're working with
+ifc_polyline_type = "IfcPolyline"
+
+# Assuming you have an IfcPolyline instance, replace this with your actual instance
+ifc_polyline = model.by_type(ifc_polyline_type)[0]
+
+# Get coordinates of points in the polyline
+point_coordinates = get_coordinates_of_polyline(ifc_polyline)
+
+# Display the coordinates
+for i, coordinates in enumerate(point_coordinates):
+    print(f"Point {i + 1}: {coordinates}")
+
+
+
+# Get coordinates of points in the polyline
+point_coordinates = get_coordinates_of_polyline(ifc_polyline)
+
+# Assuming you have at least two points
+start_point = point_coordinates[0]
+end_point = point_coordinates[-1]
+
+# Create new points along the vector between start and end points
+new_points = create_points_along_vector(start_point, end_point, num_points=20)
+
+# Display the new points
+for i, coordinates in enumerate(new_points):
+    print(f"New Point {i + 1}: {coordinates}")
 
 
 
@@ -162,7 +347,7 @@ def createstud(x,y,z):
 
     # Extrude a rectangle profile for the tabletop
     studProfile = studBuilder.rectangle(size=V(studWidth, studDepth))
-    stud = studBuilder.extrude(studBuilder.profile(studProfile), studHeight, V(0, 0, 0))
+    stud = studBuilder.extrude(studBuilder.profile(studProfile), studHeight, V(0, 0, studWidth))
     
    
 
@@ -198,9 +383,34 @@ def createstud(x,y,z):
     #rename it
     stud1.Name = "stud"
 
+
+#new definition for sill plates (rotated
+
+
+"""
+#will replace in future to fit a 2d annotation line
 for i in range(10):
     y = i * 0.45
     createstud(0,y,0)
+"""
+
+
+
+for point in new_points:
+    createstud(point[0]/1000,point[1]/1000,point[2]/1000)
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -226,7 +436,7 @@ Studs = model.by_type("IfcBuildingElementPart")
 
 #print(Studs)
 #loop through studs and add to assembly
-print(Studs)
+#print(Studs)
 
 
 
@@ -267,8 +477,8 @@ for mesh in mesh_names:
 
 
 assembly = model.by_type("IfcElementAssembly")
-print(assembly)
-print(assembly[0].Name)
+#print(assembly)
+#print(assembly[0].Name)
 
 #probably need to parent the studs to the assembly in blender
 
