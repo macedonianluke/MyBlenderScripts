@@ -39,7 +39,7 @@ class sandbox:
             # delete any IfcProject/* collections
             for collection in bpy.data.collections:
                 if re.match("^IfcProject/", collection.name):
-                    delete_collection(collection)
+                    self.delete_collection(collection)
                 else:
                     pass
             # delete any Ifc* objects not in IfcProject/ heirarchy
